@@ -16,6 +16,7 @@
 #include <wx/textctrl.h>
 
 #define wxLC_OWNERDRAW 0x10000
+#define WXWIN_COMPATIBILITY_2_8 1
 
 #include <wx/imaglist.h>
 
@@ -169,11 +170,6 @@ public:
     // refresh items selectively (only useful for virtual list controls)
     void RefreshItem(long item);
     void RefreshItems(long itemFrom, long itemTo);
-
-#if WXWIN_COMPATIBILITY_2_6
-    // obsolete, don't use
-    wxDEPRECATED( int GetItemSpacing( bool isSmall ) const );
-#endif // WXWIN_COMPATIBILITY_2_6
 
     virtual wxVisualAttributes GetDefaultAttributes() const
     {

@@ -32,9 +32,11 @@
 #include <map>
 #include <string>
 #include <sstream>
-#include <memory>
 
 #include "UPnPCompatibility.h"
+
+#include <common/SmartPtr.h>		// Needed for CSmartPtr
+
 
 extern std::string stdEmptyString;
 
@@ -327,7 +329,7 @@ private:
 	std::string m_absEventSubURL;
 	int m_timeout;
 	Upnp_SID m_SID;
-	std::auto_ptr<CUPnPSCPD> m_SCPD;
+	CSmartPtr<CUPnPSCPD> m_SCPD;
 
 public:
 	CUPnPService(
@@ -489,9 +491,15 @@ public:
 
 	// Callback function
 	static int Callback(
+#if UPNP_VERSION >= 10800
 		Upnp_EventType_e EventType,
 		const void *Event,
 		void *Cookie);
+#else
+		Upnp_EventType EventType,
+		void* Event,
+		void* Cookie);
+#endif
 
 private:
 	void OnEventReceived(
