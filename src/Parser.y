@@ -1,6 +1,5 @@
 %{
 #include "SearchExpr.h"
-#include "Scanner.h.in"
 #include "Scanner.h"
 #include "OtherFunctions.h"
 
@@ -13,7 +12,6 @@ static char THIS_FILE[] = __FILE__;
 
 extern wxArrayString _astrParserErrors;
 
-void ParsedSearchExpression(const CSearchExpr* pexpr);
 int yyerror(const char* errstr);
 int yyerror(wxString errstr);
 

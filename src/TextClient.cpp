@@ -608,13 +608,13 @@ void CamulecmdApp::ShowResults(CResultMap results_map)
 	unsigned int name_max = 80;
 	unsigned int mb_max = 5;
 	unsigned int nr_max = 5;
-	unsigned long int id = 0;
 	wxString output, name, sources, mb , kb;
 
 	printf("Nr.    Filename:                                                                        Size(MB):  Sources: \n");
 	printf("-----------------------------------------------------------------------------------------------------------\n");
 
 	for( std::map<unsigned long int,SearchFile*>::iterator iter = results_map.begin(); iter != results_map.end(); ++iter ) {
+		unsigned long int id = 0;
 		id = (*iter).first;
 		SearchFile* file = (*iter).second;
 
@@ -629,7 +629,7 @@ void CamulecmdApp::ShowResults(CResultMap results_map)
 
 
 // Formats a statistics (sub)tree to text
-wxString StatTree2Text(const CEC_StatTree_Node_Tag *tree, int depth)
+static wxString StatTree2Text(const CEC_StatTree_Node_Tag *tree, int depth)
 {
 	if (!tree) {
 		return wxEmptyString;
@@ -1027,17 +1027,8 @@ int CamulecmdApp::OnRun()
 	return 0;
 }
 
-// Dummy functions for EC logging
-bool ECLogIsEnabled()
-{
-	return false;
-}
-
-void DoECLogLine(const wxString &)
-{
-}
-
-
+// Stub functions needed by the linker in ASIO builds
+#include "GuiEvents.h"
 namespace MuleNotify
 {
 	void HandleNotification(const class CMuleNotiferBase&) {}

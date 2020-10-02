@@ -91,7 +91,7 @@ bool CDirIterator::HasSubDirs(const wxString& spec)
 }
 
 
-EFileType GuessFiletype(const wxString& file)
+static EFileType GuessFiletype(const wxString& file)
 {
 	wxFile archive(file, wxFile::read);
 	if (!archive.IsOpened()) {
@@ -132,7 +132,7 @@ EFileType GuessFiletype(const wxString& file)
  * Replaces the zip-archive with "guarding.p2p" or "ipfilter.dat",
  * if either of those files are found in the archive.
  */
-bool UnpackZipFile(const wxString& file, const wxChar* files[])
+static bool UnpackZipFile(const wxString& file, const wxChar* files[])
 {
 	wxTempFile target(file);
 	CSmartPtr<wxZipEntry> entry;
@@ -174,9 +174,8 @@ bool UnpackZipFile(const wxString& file, const wxChar* files[])
 /**
  * Unpacks a GZip file and replaces the archive.
  */
-bool UnpackGZipFile(const wxString& file)
+static bool UnpackGZipFile(const wxString& file)
 {
-	char buffer[10240];
 	wxTempFile target(file);
 
 	bool write = false;
@@ -186,6 +185,7 @@ bool UnpackGZipFile(const wxString& file)
 
 	gzFile inputFile = gzopen(filename2char(file), "rb");
 	if (inputFile != NULL) {
+		char buffer[10240];
 		write = true;
 
 		while (int bytesRead = gzread(inputFile, buffer, sizeof(buffer))) {
@@ -221,6 +221,7 @@ bool UnpackGZipFile(const wxString& file)
 		wxZlibInputStream inputStream(source);
 
 		while (!inputStream.Eof()) {
+			char buffer[10240];
 			inputStream.Read(buffer, sizeof(buffer));
 
 			// AddDebugLogLineN(logFileIO, CFormat(wxT("Read %u bytes")) % inputStream.LastRead());

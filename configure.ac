@@ -54,11 +54,9 @@ MULE_RESTORE([BUILD_CFLAGS])
 AC_PROG_AWK
 AC_PROG_EGREP
 AC_PROG_MAKE_SET
-AC_PROG_LEX
 AC_PROG_INSTALL
 AC_PROG_RANLIB
 AC_PROG_SED
-AC_PROG_YACC
 
 dnl Find the right ranlib, even when cross-compiling
 dnl And for some other tools for cross compilation
@@ -149,14 +147,6 @@ MULE_IF_ENABLED([webserver],
 AC_SUBST([AMULEWEB_DEFS])dnl
 
 
-# Check for perl File::Copy
-AC_MSG_CHECKING([for File::Copy])
-AS_IF([perl -e "require File::Copy" 2>/dev/null], [AC_MSG_RESULT([ok])],
-	[MULE_WARNING(
-		[File::Copy perl module is required by the mldonkey_importer script.
-		If you want to use this script please install File::Copy from CPAN.])])
-
-
 # Check for GeoIP (required for IP2Country capability)
 MULE_IF_ENABLED_ANY([monolithic, amule-gui], [MULE_CHECK_GEOIP])
 
@@ -242,6 +232,11 @@ MULE_IF_ENABLED_ANY([monolithic, amule-daemon, amule-gui, fileview],
 ])])
 
 
+# Check for libcurl
+MULE_IF_ENABLED_ANY([monolithic, amule-daemon, amule-gui],
+[LIBCURL_CHECK_CONFIG(, [7.32.0],, [MULE_WARNING([libcurl not found or disabled. Reverting to using wxHTTP for http download, but beware, https won't be supported.])])])
+
+
 MULE_COMPILATION_FLAGS
 
 
@@ -261,7 +256,6 @@ MULE_IF_ENABLED_ANY([monolithic, amule-daemon, amule-gui, amulecmd, webserver], 
 ])
 
 # Ok, we have all needed libs, now checking for other stuff
-AS_IF([test "$LEX" = "flex"], [MULE_CHECK_FLEX_EXTENDED], [HAVE_FLEX_EXTENDED=no])
 
 
 # Checks for header files.
@@ -454,7 +448,6 @@ AM_CONDITIONAL(SYS_WIN32, test x$SYS = xwin32)
 AM_CONDITIONAL(NEED_RC, test x$SYS = xwin32 -a "$RC" != ":" -a x$WX_PORT = xmsw)
 AM_CONDITIONAL(NEED_CORESERVICES, test x$SYS = xdarwin)
 AM_CONDITIONAL(COMPILE_NLS, test x$USE_NLS = xyes)
-AM_CONDITIONAL(GENERATE_FLEX_HEADER, test x$HAVE_FLEX_EXTENDED = xyes)
 AM_CONDITIONAL(INSTALL_SKINS, test MULE_IS_ENABLED_ANY([monolithic, amule-gui]))
 AM_CONDITIONAL(PLASMAMULE, test MULE_IS_ENABLED([plasmamule]))
 
@@ -562,6 +555,8 @@ AS_IF([test ${with_boost:-no} != no],
 )])
 MULE_IF_ENABLED_ANY([monolithic, amule-daemon, amule-gui, fileview],
 	[echo "                             crypto++              ${CRYPTOPP_VERSION_STRING} (in ${CRYPTOPP_PREFIX})"])
+MULE_IF_ENABLED_ANY([monolithic, amule-daemon, amule-gui],
+	[echo "                             libcurl               ${libcurl_cv_lib_curl_version:-Not detected}"])
 MULE_IF_ENABLED([upnp], [
 	AS_IF([test -n "$with_libupnp_prefix"], [libupnp_place=" (in $with_libupnp_prefix)"])
 	echo "                             libupnp               ${LIBUPNP_VERSION:-Not detected}${libupnp_place:-}"

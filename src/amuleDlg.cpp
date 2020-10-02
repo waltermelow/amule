@@ -503,7 +503,7 @@ void CamuleDlg::OnAboutButton(wxCommandEvent& WXUNUSED(ev))
 		_("Forum: http://forum.amule.org \n") <<
 		_("FAQ: http://wiki.amule.org \n\n") <<
 		_("Contact: admin@amule.org (administrative issues) \n") <<
-		_("Copyright (c) 2003-2011 aMule Team \n\n") <<
+		_("Copyright (c) 2003-2019 aMule Team \n\n") <<
 		_("Part of aMule is based on \n") <<
 		_("Kademlia: Peer-to-peer routing based on the XOR metric.\n") <<
                 _(" Copyright (c) 2002-2011 Petar Maymounkov ( petar@post.harvard.edu )\n") <<
@@ -1183,22 +1183,6 @@ void CamuleDlg::LaunchUrl( const wxString& url )
 	// Unable to execute browser. But this error message doesn't make sense,
 	// cosidering that you _can't_ set the browser executable path... =/
 	wxLogError(wxT("Unable to launch browser. Please set correct browser executable path in Preferences."));
-}
-
-
-wxString CamuleDlg::GenWebSearchUrl(const wxString &filename, WebSearch wsProvider )
-{
-	wxString URL;
-	switch (wsProvider)  {
-		case WS_FILEHASH:
-			URL = wxT("http://www.filehash.com/search.html?pattern=FILENAME&submit=Find");
-			break;
-		default:
-			wxFAIL;
-	}
-	URL.Replace(wxT("FILENAME"), filename);
-
-	return URL;
 }
 
 

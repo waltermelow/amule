@@ -34,6 +34,7 @@ using namespace std;
 #include "ECPacket.h"		// Needed for CECPacket
 #include "../../../Logger.h"
 #include <common/Format.h>	// Needed for CFormat
+#include "ECLog.h"
 
 #define EC_COMPRESSION_LEVEL	Z_DEFAULT_COMPRESSION
 #define EC_MAX_UNCOMPRESSED	1024
@@ -75,16 +76,17 @@ static const struct utf8_table utf8_table[] =
     {0,     0,      0,      0,              0,         /* end of table    */}
 };
 
-int utf8_mbtowc(uint32_t *p, const unsigned char *s, int n)
+static int utf8_mbtowc(uint32_t *p, const unsigned char *s, int n)
 {
 	uint32_t l;
-	int c0, c, nc;
+	int c0, nc;
 	const struct utf8_table *t;
 
 	nc = 0;
 	c0 = *s;
 	l = c0;
 	for (t = utf8_table; t->cmask; t++) {
+		int c;
 		nc++;
 		if ((c0 & t->cmask) == t->cval) {
 			l &= t->lmask;
@@ -104,7 +106,7 @@ int utf8_mbtowc(uint32_t *p, const unsigned char *s, int n)
 	return -1;
 }
 
-int utf8_wctomb(unsigned char *s, uint32_t wc, int maxlen)
+static int utf8_wctomb(unsigned char *s, uint32_t wc, int maxlen)
 {
 	uint32_t l;
 	int c, nc;
@@ -505,7 +507,7 @@ void CECSocket::WriteBufferToSocket(const void *buffer, size_t len)
 // ZLib "error handler"
 //
 
-void ShowZError(int zerror, z_streamp strm)
+static void ShowZError(int zerror, z_streamp strm)
 {
 	const char *p = NULL;
 

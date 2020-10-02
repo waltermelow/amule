@@ -24,10 +24,18 @@
 //
 
 
-#include <wx/wfstream.h>
-#include <wx/protocol/http.h>
+#ifdef HAVE_CONFIG_H
+#	include "config.h"				// Needed for HAVE_LIBCURL
+#endif
 
+#ifdef HAVE_LIBCURL
+#	include <curl/curl.h>
+#	include <common/ClientVersion.h>		// Needed for the VERSION_ defines
+#else
+#	include <wx/protocol/http.h>
+#endif
 
+#include <wx/wfstream.h>				// Needed for wxFFileOutputStream
 #include "HTTPDownload.h"				// Interface declarations
 #include <common/StringFunctions.h>		// Needed for unicode2char
 #include "OtherFunctions.h"				// Needed for CastChild
@@ -185,13 +193,58 @@ wxString CHTTPDownloadThread::FormatDateHTTP(const wxDateTime& date)
 }
 
 
+#ifdef HAVE_LIBCURL
+
+size_t mule_curl_write_callback(char *ptr, size_t WXUNUSED(size), size_t nmemb, void *userdata)
+{
+	wxFFileOutputStream *outstream = static_cast<wxFFileOutputStream *>(userdata);
+
+	// According to the documentation size will always be 1.
+	outstream->Write(ptr, nmemb);
+
+	return outstream->LastWrite();
+}
+
+#ifdef __DEBUG__
+int mule_curl_debug_callback(CURL* WXUNUSED(handle), curl_infotype type, char *data, size_t WXUNUSED(size), void* WXUNUSED(userptr))
+{
+	if (type == CURLINFO_TEXT) {
+		AddDebugLogLineN(logHTTP, CFormat(wxT("curl: %s")) % wxString(data));
+	}
+
+	return 0;
+}
+#endif
+
+#ifndef AMULE_DAEMON
+int mule_curl_xferinfo_callback(void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t WXUNUSED(ultotal), curl_off_t WXUNUSED(ulnow))
+{
+	wxEvtHandler *dialog = static_cast<wxEvtHandler *>(clientp);
+
+	CMuleInternalEvent evt(wxEVT_HTTP_PROGRESS);
+	evt.SetInt(dlnow);
+	evt.SetExtraLong(dltotal);
+	wxPostEvent(dialog, evt);
+
+	return 0;
+}
+#endif
+
+#endif /* HAVE_LIBCURL */
+
+
 CMuleThread::ExitCode CHTTPDownloadThread::Entry()
 {
 	if (TestDestroy()) {
 		return NULL;
 	}
 
+#ifdef HAVE_LIBCURL
+	CURL *curl;
+	CURLcode res;
+#else
 	wxHTTP* url_handler = NULL;
+#endif
 
 	AddDebugLogLineN(logHTTP, wxT("HTTP download thread started"));
 
@@ -209,6 +262,186 @@ CMuleThread::ExitCode CHTTPDownloadThread::Entry()
 			// Nowhere to download from!
 			throw wxString(_("The URL to download can't be empty"));
 		}
+
+#ifdef HAVE_LIBCURL
+
+		curl = curl_easy_init();
+		if (curl) {
+			struct curl_slist *list = NULL;
+
+			curl_easy_setopt(curl, CURLOPT_URL, (const char *)unicode2char(m_url));
+
+			// follow redirects
+			curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+			// set write callback
+			curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, mule_curl_write_callback);
+			curl_easy_setopt(curl, CURLOPT_WRITEDATA, &outfile);
+
+#ifdef __DEBUG__
+			// send libcurl verbose messages to aMule debug log
+			curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, mule_curl_debug_callback);
+			curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+#endif
+
+#ifndef AMULE_DAEMON
+			// show download progress
+			if (m_companion) {
+				// CURLOPT_XFERINFOFUNCTION was introduced in 7.32.0.
+				// We're not planning to support older libcurl versions, thus if
+				// the runtime library doesn't support CURLOPT_XFERINFOFUNCTION
+				// (probably because it's too old) we simply won't have a progress meter.
+				res = curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, mule_curl_xferinfo_callback);
+				if (res == CURLE_OK) {
+					curl_easy_setopt(curl, CURLOPT_XFERINFODATA, m_companion);
+					curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+				}
+			}
+#endif
+
+			// Build a conditional get request if the last modified date of the file being updated is known
+			if (m_lastmodified.IsValid()) {
+				// Set a flag in the HTTP header that we only download if the file is newer.
+				// see: http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.25
+				AddDebugLogLineN(logHTTP, wxT("If-Modified-Since: ") + FormatDateHTTP(m_lastmodified));
+				list = curl_slist_append(list, (const char *)unicode2char(wxT("If-Modified-Since: ") + FormatDateHTTP(m_lastmodified)));
+			}
+
+			// set custom header(s)
+			curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
+
+			// some servers don't like requests without a user-agent, so set one
+			// always use a numerical version value, that's why we don't use VERSION
+			curl_easy_setopt(curl, CURLOPT_USERAGENT, "aMule/" wxSTRINGIZE(VERSION_MJR) "." wxSTRINGIZE(VERSION_MIN) "." wxSTRINGIZE(VERSION_UPDATE));
+
+			// set the outgoing address
+			if (!thePrefs::GetAddress().empty()) {
+				curl_easy_setopt(curl, CURLOPT_INTERFACE, (const char *)unicode2char(thePrefs::GetAddress()));
+			}
+
+			// proxy
+			if (use_proxy) {
+				switch (proxy_data->m_proxyType) {
+					case PROXY_SOCKS5:
+						curl_easy_setopt(curl, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS5);
+#if LIBCURL_VERSION_NUM >= 0x073700
+						// CURLOPT_SOCKS5_AUTH was added in 7.55.0
+						if (proxy_data->m_enablePassword) {
+							curl_easy_setopt(curl, CURLOPT_SOCKS5_AUTH, CURLAUTH_BASIC);
+						} else {
+							curl_easy_setopt(curl, CURLOPT_SOCKS5_AUTH, CURLAUTH_NONE);
+						}
+#endif
+						break;
+					case PROXY_SOCKS4:
+						curl_easy_setopt(curl, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS4);
+						break;
+					case PROXY_HTTP:
+						curl_easy_setopt(curl, CURLOPT_PROXYTYPE, CURLPROXY_HTTP);
+						// Using only "Basic" authentication as the rest of the code
+						// (in Proxy.cpp) supports only that
+						curl_easy_setopt(curl, CURLOPT_PROXYAUTH, CURLAUTH_BASIC);
+						// Not tunneling through the proxy on purpose, let it cache
+						// HTTP traffic if possible (this is the default behaviour).
+						//curl_easy_setopt(curl, CURLOPT_HTTPPROXYTUNNEL, 0L);
+						break;
+					case PROXY_SOCKS4a:
+						curl_easy_setopt(curl, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS4A);
+						break;
+					default:
+						goto noProxy;
+				}
+				curl_easy_setopt(curl, CURLOPT_PROXY, (const char *)unicode2char(proxy_data->m_proxyHostName));
+				curl_easy_setopt(curl, CURLOPT_PROXYPORT, proxy_data->m_proxyPort);
+				if (proxy_data->m_enablePassword) {
+					curl_easy_setopt(curl, CURLOPT_PROXYUSERNAME, (const char *)unicode2char(proxy_data->m_userName));
+					curl_easy_setopt(curl, CURLOPT_PROXYPASSWORD, (const char *)unicode2char(proxy_data->m_password));
+				}
+			}
+noProxy:
+
+			// perform the action
+			res = curl_easy_perform(curl);
+
+			// clean up
+			curl_slist_free_all(list);
+
+			// check the result
+			if (res != CURLE_OK) {
+				m_result = HTTP_Error;
+				curl_easy_cleanup(curl);
+				throw wxString(CFormat(_("HTTP download failed: %s")) % wxString(curl_easy_strerror(res)));
+			} else {
+				long response_code;
+				res = curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
+				if (res != CURLE_OK) {
+					// getinfo() failed, but perform() succeeded. Let's assume the transfer was O.K.
+					AddDebugLogLineN(logHTTP, wxT("curl_easy_getinfo() failed: ") + wxString(curl_easy_strerror(res)));
+					m_result = HTTP_Success;
+				} else {
+					AddDebugLogLineN(logHTTP, CFormat(wxT("Response code: %d")) % response_code);
+					if (response_code == 304) {		// "Not Modified"
+						m_result = HTTP_Skipped;
+					} else if (response_code == 200) {	// "OK"
+						m_result = HTTP_Success;
+						/* TRANSLATORS: parameters are 'size transferred', 'URL' and 'download time' */
+						CFormat message(_("HTTP: Downloaded %s from '%s' in %s"));
+						curl_version_info_data *data = curl_version_info(CURLVERSION_NOW);
+
+						// get downloaded size
+#if LIBCURL_VERSION_NUM >= 0x073700
+						/* CURLINFO_SIZE_DOWNLOAD_T was introduced in 7.55.0 */
+						/* check the runtime version, too */
+						if (data->version_num >= 0x073700) {
+							curl_off_t dl;
+							curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD_T, &dl);
+							message % CastItoXBytes(dl);
+						} else
+#endif
+						{
+							double dl;
+							curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD, &dl);
+							message % CastItoXBytes((uint64)dl);
+						}
+
+						// get effective URL
+						{
+							char *url = NULL;
+							curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &url);
+							message % wxString(url);
+						}
+
+						// get download time
+#if LIBCURL_VERSION_NUM >= 0x073d00
+						/* In libcurl 7.61.0, support was added for extracting the time in plain
+						   microseconds. Older libcurl versions are stuck in using 'double' for this
+						   information. */
+						if (data->version_num >= 0x073d00) {
+							curl_off_t tm;
+							curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME_T, &tm);
+							// CastSecondsToHM() uses milliseconds while we have microseconds now
+							message % CastSecondsToHM(tm / 1000000, (tm / 1000) % 1000);
+						} else
+#endif
+						{
+							double tm;
+							curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &tm);
+							message % CastSecondsToHM((uint32)tm, (uint16)(tm * 1000));
+						}
+
+						// Summarize transfer details
+						AddLogLineN(message);
+					} else {
+						m_result = HTTP_Error;
+					}
+				}
+			}
+
+			// clean up
+			curl_easy_cleanup(curl);
+		}
+
+#else /* == not HAVE_LIBCURL */
 
 		url_handler = new wxHTTP;
 		url_handler->SetProxyMode(use_proxy);
@@ -284,6 +517,9 @@ CMuleThread::ExitCode CHTTPDownloadThread::Entry()
 				m_result = HTTP_Success;
 			}
 		}
+
+#endif /* ifelse HAVE_LIBCURL */
+
 	} catch (const wxString& error) {
 		if (wxFileExists(m_tempfile)) {
 			wxRemoveFile(m_tempfile);
@@ -297,9 +533,11 @@ CMuleThread::ExitCode CHTTPDownloadThread::Entry()
 		thePrefs::SetLastHTTPDownloadURL(m_file_id, m_url);
 	}
 
+#ifndef HAVE_LIBCURL
 	if (url_handler) {
 		url_handler->Destroy();
 	}
+#endif
 
 	AddDebugLogLineN(logHTTP, wxT("HTTP download thread ended"));
 
@@ -326,16 +564,20 @@ void CHTTPDownloadThread::OnExit()
 }
 
 
+#ifndef HAVE_LIBCURL
 //! This function's purpose is to handle redirections in a proper way.
 wxInputStream* CHTTPDownloadThread::GetInputStream(wxHTTP * & url_handler, const wxString& location, bool proxy)
 {
+	// Extract the protocol name
+	wxString protocol(location.BeforeFirst(wxT(':')));
+
 	if (TestDestroy()) {
 		return NULL;
 	}
 
-	if (!location.StartsWith(wxT("http://"))) {
+	if (protocol != wxT("http")) {
 		// This is not a http url
-		throw wxString(_("Invalid URL for HTTP download or HTTP redirection (did you forget 'http://' ?)"));
+		throw wxString(CFormat(_("Protocol not supported for HTTP download: %s")) % protocol);
 	}
 
 	// Get the host
@@ -411,6 +653,7 @@ wxInputStream* CHTTPDownloadThread::GetInputStream(wxHTTP * & url_handler, const
 		delete url_read_stream;
 
 		wxString new_location = url_handler->GetHeader(wxT("Location"));
+		AddDebugLogLineN(logHTTP, CFormat(wxT("Redirecting to: %s")) % new_location);
 
 		url_handler->Destroy();
 		if (!new_location.IsEmpty()) {
@@ -436,6 +679,7 @@ wxInputStream* CHTTPDownloadThread::GetInputStream(wxHTTP * & url_handler, const
 
 	return url_read_stream;
 }
+#endif /* !HAVE_LIBCURL */
 
 void CHTTPDownloadThread::StopAll()
 {
