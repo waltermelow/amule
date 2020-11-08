@@ -619,7 +619,8 @@ void CamulecmdApp::ShowResults(CResultMap results_map)
 		SearchFile* file = (*iter).second;
 
 		output.Printf(wxT("%lu.      "), id);
-		output = output.SubString(0, nr_max).Append(file->sFileName).Append(' ', name_max);
+		// DML Antes: output = output.SubString(0, nr_max).Append(file->sFileName).Append(' ', name_max);
+		output = output.SubString(0, nr_max).Append(file->sFileName);
 		mb.Printf(wxT("     %ld"), file->lFileSize/1024/1024);
 		kb.Printf(wxT(".%03ld"), file->lFileSize/1024%1024);
 		output = output.SubString(0, nr_max + name_max + mb_max - mb.Length() ).Append(mb).Append(kb);
