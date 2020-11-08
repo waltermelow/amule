@@ -15,6 +15,34 @@ aMule is an eMule-like client for the eDonkey and Kademlia networks.
 [FAQ]:   http://wiki.amule.org/wiki/FAQ_aMule	"FAQ on aMule"
 
 
+Docker compilation
+-------------------
+
+1. Build Docker compilation environment
+
+Clone repository
+
+`git clone https://github.com/waltermelow/amule`
+
+Build Docker environment
+
+`docker build -t amule-compiler-environment-ubuntu .`
+
+2. Compile aMule in Docker environment
+
+```
+docker run --rm -it -v $PWD:/usr/src/amule:rw amule-compiler-environment-ubuntu \
+./autogen.sh && \
+mk-build-deps -i && \
+./configure --enable-wxcas --enable-cas --enable-webserver --enable-amule-gui --enable-amule-daemon --enable-alcc --enable-alc --enable-amulecmd --enable-geoip --with-boost  && \  # o solo: ./configure --enable-amulecmd
+make
+ls -lahtr src/
+```
+
+3. Binary output
+
+`ls src\*`
+
 Overview
 --------
 
